@@ -1,40 +1,82 @@
 name: Deploy Infinity Bloom bundle
+
 on:
   workflow_dispatch:
     inputs:
       bundle_url:
         description: Bundle ZIP URL
         required: true
+        type: string
+      version:
+        description: Version path (for example, v17)
+        required: true
+        type: string
+
 permissions:
   contents: write
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Validate version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if [[ ! "$VERSION" =~ ^v[0-9]+$ ]]; then
+            echo "version must look like v17" >&2
+            exit 1
+          fi
+
       - name: Download bundle
         env:
           BUNDLE_URL: ${{ inputs.bundle_url }}
+          VERSION: ${{ inputs.version }}
         run: |
           curl --fail --location --retry 3 "$BUNDLE_URL" -o /tmp/bundle.zip
           unzip -q /tmp/bundle.zip -d /tmp/bundle
+          test -f "/tmp/bundle"/*/deploy/"$VERSION"/index.html
+          test -f "/tmp/bundle"/*/readable/"$VERSION"/index.html
+
       - name: Deploy public build
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
-          cp /tmp/bundle/*/deploy/v16/index.html v16/index.html
+          mkdir -p "$VERSION"
+          cp "/tmp/bundle"/*/deploy/"$VERSION"/index.html "$VERSION/index.html"
+          cat > index.html <<EOF_REDIRECT
+          <!doctype html>
+          <html lang="en">
+            <head>
+              <meta charset="utf-8">
+              <meta http-equiv="refresh" content="0; url=$VERSION/">
+              <link rel="canonical" href="$VERSION/">
+              <title>Infinity Bloom</title>
+            </head>
+            <body>
+              <p><a href="$VERSION/">Open Infinity Bloom $VERSION</a></p>
+            </body>
+          </html>
+          EOF_REDIRECT
           git config user.name Yariv-h
           git config user.email 3518124+Yariv-h@users.noreply.github.com
-          git add v16/index.html
-          git diff --cached --quiet || git commit -m "v16: melody story sound reactivity"
+          git add "$VERSION/index.html" index.html
+          git diff --cached --quiet || git commit -m "$VERSION: deploy Infinity Bloom and update latest redirect"
           git push
+
       - name: Deploy readable source
         env:
           PAT: ${{ secrets.PAT }}
+          VERSION: ${{ inputs.version }}
         run: |
           git clone "https://x-access-token:${PAT}@github.com/Yariv-h/Infinity-bloom-src.git" /tmp/src
-          mkdir -p /tmp/src/v16 && cp /tmp/bundle/*/readable/v16/index.html /tmp/src/v16/index.html
+          mkdir -p "/tmp/src/$VERSION"
+          cp "/tmp/bundle"/*/readable/"$VERSION"/index.html "/tmp/src/$VERSION/index.html"
           cd /tmp/src
           git config user.name Yariv-h
           git config user.email 3518124+Yariv-h@users.noreply.github.com
-          git add v16/index.html
-          git diff --cached --quiet || git commit -m "v16: melody story sound reactivity"
+          git add "$VERSION/index.html"
+          git diff --cached --quiet || git commit -m "$VERSION: add readable Infinity Bloom source"
           git push
